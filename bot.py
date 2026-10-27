@@ -4,7 +4,8 @@ import random
 import string
 import threading
 import requests as req
-import mysql.connector
+import psycopg2
+import psycopg2.extras
 from datetime import datetime
 from dotenv import load_dotenv
 from flask import Flask
@@ -48,13 +49,13 @@ def run_flask():
 #  Database
 # ─────────────────────────────────────────────
 def db():
-    return mysql.connector.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        port=int(os.getenv("DB_PORT", "3306")),
-        user=os.getenv("DB_USER", "root"),
+    return psycopg2.connect(
+        host=os.getenv("DB_HOST"),
+        port=int(os.getenv("DB_PORT", "5432")),
+        user=os.getenv("DB_USER", "postgres"),
         password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME", "EvangBibleStudyPlan"),
-        charset="utf8mb4"
+        dbname=os.getenv("DB_NAME", "postgres"),
+        sslmode="require"
     )
 
 def get_topic_id(user_id):
@@ -69,8 +70,7 @@ def get_topic_id(user_id):
         print(f"[DB] get_topic_id error: {e}")
         return None
     finally:
-        if conn and conn.is_connected():
-            cur.close(); conn.close()
+        if conn: conn.close()
 
 def set_topic_id(user_id, topic_id):
     conn = None
@@ -78,16 +78,16 @@ def set_topic_id(user_id, topic_id):
         conn = db()
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO user_progress (telegram_id, topic_id) VALUES (%s,%s) "
-            "ON DUPLICATE KEY UPDATE topic_id=%s",
-            (user_id, topic_id, topic_id)
+            """INSERT INTO user_progress (telegram_id, topic_id)
+               VALUES (%s, %s)
+               ON CONFLICT (telegram_id) DO UPDATE SET topic_id = EXCLUDED.topic_id""",
+            (user_id, topic_id)
         )
         conn.commit()
     except Exception as e:
         print(f"[DB] set_topic_id error: {e}")
     finally:
-        if conn and conn.is_connected():
-            cur.close(); conn.close()
+        if conn: conn.close()
 
 def get_user_by_topic(topic_id):
     conn = None
@@ -101,19 +101,16 @@ def get_user_by_topic(topic_id):
         print(f"[DB] get_user_by_topic error: {e}")
         return None
     finally:
-        if conn and conn.is_connected():
-            cur.close(); conn.close()
+        if conn: conn.close()
 
 # ─────────────────────────────────────────────
 #  Anonymous ID helpers
 # ─────────────────────────────────────────────
 def _generate_anon_id():
-    """Generate a short random anonymous ID like #A3F9B2."""
     chars = string.ascii_uppercase + string.digits
     return "#" + "".join(random.choices(chars, k=6))
 
 def get_or_create_anon_id(user_id):
-    """Return the stored anonymous ID for a user, creating one if absent."""
     conn = None
     try:
         conn = db()
@@ -122,15 +119,18 @@ def get_or_create_anon_id(user_id):
         row = cur.fetchone()
         if row and row[0]:
             return row[0]
-        # No anon_id yet — generate and persist one
         anon_id = _generate_anon_id()
         cur.execute(
-            "INSERT INTO user_progress (telegram_id, anon_id) VALUES (%s, %s) "
-            "ON DUPLICATE KEY UPDATE anon_id = IF(anon_id IS NULL, %s, anon_id)",
-            (user_id, anon_id, anon_id)
+            """INSERT INTO user_progress (telegram_id, anon_id)
+               VALUES (%s, %s)
+               ON CONFLICT (telegram_id) DO UPDATE
+               SET anon_id = CASE
+                   WHEN user_progress.anon_id IS NULL THEN EXCLUDED.anon_id
+                   ELSE user_progress.anon_id
+               END""",
+            (user_id, anon_id)
         )
         conn.commit()
-        # Re-read to get whatever was actually saved (handles race conditions)
         cur.execute("SELECT anon_id FROM user_progress WHERE telegram_id = %s", (user_id,))
         row = cur.fetchone()
         return row[0] if row else anon_id
@@ -138,8 +138,7 @@ def get_or_create_anon_id(user_id):
         print(f"[DB] get_or_create_anon_id error: {e}")
         return _generate_anon_id()
     finally:
-        if conn and conn.is_connected():
-            cur.close(); conn.close()
+        if conn: conn.close()
 
 # ─────────────────────────────────────────────
 #  Bot
@@ -394,15 +393,19 @@ def start_bible_study(msg):
     conn = None
     try:
         conn = db()
-        cur  = conn.cursor(dictionary=True)
+        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("SELECT chapter, teaching_content FROM study_content WHERE book_name=%s AND day_number=1", (book,))
         lesson = cur.fetchone()
         if lesson:
             cur.execute(
-                "INSERT INTO user_progress (telegram_id,active_book,current_day,last_sent_at,subscription_status) "
-                "VALUES (%s,%s,1,NOW(),'active') ON DUPLICATE KEY UPDATE "
-                "active_book=%s,current_day=1,last_sent_at=NOW(),subscription_status='active'",
-                (uid, book, book)
+                """INSERT INTO user_progress (telegram_id, active_book, current_day, last_sent_at, subscription_status)
+                   VALUES (%s, %s, 1, NOW(), 'active')
+                   ON CONFLICT (telegram_id) DO UPDATE SET
+                       active_book = EXCLUDED.active_book,
+                       current_day = 1,
+                       last_sent_at = NOW(),
+                       subscription_status = 'active'""",
+                (uid, book)
             )
             conn.commit()
             bot.send_message(uid, f"📖 *{lesson['chapter']}*\n\n{lesson['teaching_content']}",
@@ -413,7 +416,7 @@ def start_bible_study(msg):
         print(f"[bible_study] {e}")
         bot.send_message(uid, "⚠️ ችግር ተፈጥሯል። እባክዎ ቆይተው ይሞክሩ።")
     finally:
-        if conn and conn.is_connected(): cur.close(); conn.close()
+        if conn: conn.close()
 
 @bot.callback_query_handler(func=lambda c: c.data == "next_day")
 def on_next_day(call):
@@ -421,18 +424,18 @@ def on_next_day(call):
     conn = None
     try:
         conn = db()
-        cur  = conn.cursor(dictionary=True)
-        cur.execute("SELECT active_book,current_day FROM user_progress WHERE telegram_id=%s", (uid,))
+        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT active_book, current_day FROM user_progress WHERE telegram_id=%s", (uid,))
         row = cur.fetchone()
         if not row:
             bot.answer_callback_query(call.id, "እባክዎ መጀመሪያ ጥናቱን ይጀምሩ።")
             return
         next_day = row["current_day"] + 1
-        cur.execute("SELECT chapter,teaching_content FROM study_content WHERE book_name=%s AND day_number=%s",
+        cur.execute("SELECT chapter, teaching_content FROM study_content WHERE book_name=%s AND day_number=%s",
                     (row["active_book"], next_day))
         content = cur.fetchone()
         if content:
-            cur.execute("UPDATE user_progress SET current_day=%s,last_sent_at=NOW() WHERE telegram_id=%s",
+            cur.execute("UPDATE user_progress SET current_day=%s, last_sent_at=NOW() WHERE telegram_id=%s",
                         (next_day, uid))
             conn.commit()
             bot.send_message(uid, f"📖 *{content['chapter']}*\n\n{content['teaching_content']}",
@@ -449,7 +452,7 @@ def on_next_day(call):
         print(f"[next_day] {e}")
         bot.answer_callback_query(call.id, "⚠️ ችግር ተፈጥሯል።")
     finally:
-        if conn and conn.is_connected(): cur.close(); conn.close()
+        if conn: conn.close()
 
 # ─────────────────────────────────────────────
 #  Daily scheduler
@@ -458,13 +461,13 @@ def send_daily():
     conn = None
     try:
         conn = db()
-        cur  = conn.cursor(dictionary=True)
-        cur.execute("""SELECT telegram_id,active_book,current_day FROM user_progress
-                       WHERE last_sent_at <= NOW() - INTERVAL 24 HOUR
+        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT telegram_id, active_book, current_day FROM user_progress
+                       WHERE last_sent_at <= NOW() - INTERVAL '24 hours'
                        AND subscription_status='active'""")
         for user in cur.fetchall():
             nd = user["current_day"] + 1
-            cur.execute("SELECT chapter,teaching_content FROM study_content WHERE book_name=%s AND day_number=%s",
+            cur.execute("SELECT chapter, teaching_content FROM study_content WHERE book_name=%s AND day_number=%s",
                         (user["active_book"], nd))
             content = cur.fetchone()
             if content:
@@ -472,7 +475,7 @@ def send_daily():
                     bot.send_message(user["telegram_id"],
                                      f"📖 *{content['chapter']}*\n\n{content['teaching_content']}",
                                      parse_mode="Markdown")
-                    cur.execute("UPDATE user_progress SET current_day=%s,last_sent_at=NOW() WHERE telegram_id=%s",
+                    cur.execute("UPDATE user_progress SET current_day=%s, last_sent_at=NOW() WHERE telegram_id=%s",
                                 (nd, user["telegram_id"]))
                     conn.commit()
                 except Exception as e:
@@ -485,7 +488,7 @@ def send_daily():
     except Exception as e:
         print(f"[daily] {e}")
     finally:
-        if conn and conn.is_connected(): cur.close(); conn.close()
+        if conn: conn.close()
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(send_daily, "interval", minutes=60)
