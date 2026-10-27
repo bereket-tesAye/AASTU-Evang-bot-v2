@@ -19,14 +19,9 @@ load_dotenv()
 # ─────────────────────────────────────────────
 TOKEN          = os.getenv("TELEGRAM_BOT_TOKEN")
 ADMIN_GROUP_ID = int(os.getenv("ADMIN_GROUP_ID", "0"))
-MENTOR_EVANGELISM_ID  = int(os.getenv("MENTOR_EVANGELISM_ID",  "111111111"))
-MENTOR_COUNSELING_ID  = int(os.getenv("MENTOR_COUNSELING_ID",  "222222222"))
-MENTOR_BIBLE_STUDY_ID = int(os.getenv("MENTOR_BIBLE_STUDY_ID", "333333333"))
-
-SPECIALIST_MENTOR_MAP = {
-    "አማካሪ ማግኘት እፈልጋለሁ": MENTOR_COUNSELING_ID,
-    "ጥያቄ መጠየቅ እፈልጋለሁ":  MENTOR_BIBLE_STUDY_ID,
-}
+ADMIN_1_ID = int(os.getenv("ADMIN_1_ID", "111111111"))
+ADMIN_2_ID = int(os.getenv("ADMIN_2_ID", "222222222"))
+ADMIN_3_ID = int(os.getenv("ADMIN_3_ID", "333333333"))
 
 SOURCE_LABEL_MAP = {
     "ኢየሱስን እንደ ግል አዳኝ አድርጌ ለመቀበል": "✝️ Salvation",
@@ -375,17 +370,7 @@ def on_registration(msg):
         except Exception as e:
             print(f"[registration] topic error: {e}")
 
-        # Mentor notifications — category and anonymous ID only
-        dm = (f"🚨 *New Anonymous Request*\n"
-              f"📌 {source}\n"
-              f"⚧ {state['sex']}\n"
-              f"� ID: `{anon_id}`")
-        try: bot.send_message(MENTOR_EVANGELISM_ID, dm, parse_mode="Markdown")
-        except: pass
-        specialist = SPECIALIST_MENTOR_MAP.get(source)
-        if specialist:
-            try: bot.send_message(specialist, dm, parse_mode="Markdown")
-            except: pass
+
 
         bot.send_message(cid,
             "✅ ተመዝግቧል! አማካሪ በቅርቡ ያነጋግርዎታል። እግዚአብሔር ይባርክዎ! 🙏\n\n"
