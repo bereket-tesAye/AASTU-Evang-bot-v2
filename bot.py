@@ -656,8 +656,8 @@ if __name__ == "__main__":
             )
         except Exception as e:
             if "409" in str(e):
-                print(f"409 conflict, waiting 15s...")
-                time.sleep(15)
+                print(f"409 conflict, waiting 30s...")
+                time.sleep(30)
             else:
                 print(f"Polling error: {e}, retrying in 5s...")
                 time.sleep(5)
