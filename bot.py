@@ -206,12 +206,15 @@ def forward_to_admin(user_id, message, source=""):
 
 def send_to_user(admin_msg):
     tid = admin_msg.message_thread_id
+    print(f"[send_to_user] tid={tid}")
     if not tid:
+        print(f"[send_to_user] no thread id, skipping")
         return
     user_id = get_user_by_topic(tid)
     if not user_id:
-        print(f"[send_to_user] no user for topic {tid}")
+        print(f"[send_to_user] no user found for topic {tid}")
         return
+    print(f"[send_to_user] sending to user_id={user_id}")
     try:
         if admin_msg.text:
             bot.send_message(user_id, f"💬 {admin_msg.text}")
@@ -287,7 +290,9 @@ def start_registration(message, source):
     )
 )
 def on_admin_reply(msg):
-    print(f"[admin_reply] thread={msg.message_thread_id} from={msg.from_user.id}")
+    print(f"[admin_reply] thread={msg.message_thread_id} from={msg.from_user.id} text={msg.text!r}")
+    user_id = get_user_by_topic(msg.message_thread_id)
+    print(f"[admin_reply] resolved user_id={user_id}")
     send_to_user(msg)
 
 # ─────────────────────────────────────────────
