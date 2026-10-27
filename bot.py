@@ -50,9 +50,10 @@ def run_flask():
 def db():
     return mysql.connector.connect(
         host=os.getenv("DB_HOST", "localhost"),
-        user="root",
+        port=int(os.getenv("DB_PORT", "3306")),
+        user=os.getenv("DB_USER", "root"),
         password=os.getenv("DB_PASSWORD"),
-        database="EvangBibleStudyPlan",
+        database=os.getenv("DB_NAME", "EvangBibleStudyPlan"),
         charset="utf8mb4"
     )
 
