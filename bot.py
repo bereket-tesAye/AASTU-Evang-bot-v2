@@ -514,6 +514,9 @@ MENU_BUTTONS = {
 
 @bot.message_handler(func=lambda m: True)
 def router(msg):
+    # Log every message for debugging
+    print(f"[router] chat={msg.chat.id} type={msg.chat.type} thread={msg.message_thread_id} from={msg.from_user.id if msg.from_user else None} text={msg.text!r}")
+
     if msg.chat.id == ADMIN_GROUP_ID:
         return
 
@@ -649,7 +652,7 @@ if __name__ == "__main__":
             bot.infinity_polling(
                 timeout=25,
                 long_polling_timeout=25,
-                allowed_updates=["message", "callback_query"]
+                allowed_updates=["message", "callback_query", "my_chat_member", "chat_member"]
             )
         except Exception as e:
             if "409" in str(e):
