@@ -644,7 +644,7 @@ if __name__ == "__main__":
     print("Clearing any existing webhook...")
     req.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook",
             params={"drop_pending_updates": "false"})
-    time.sleep(2)
+    time.sleep(10)  # Wait for any previous instance to release the connection
 
     print("Starting bot polling...")
     while True:
