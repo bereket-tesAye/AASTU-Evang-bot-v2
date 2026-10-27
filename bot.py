@@ -1,5 +1,7 @@
 import os
 import time
+import random
+import string
 import threading
 import requests as req
 import mysql.connector
@@ -41,7 +43,7 @@ app = Flask(__name__)
 @app.route("/")
 @app.route("/health")
 def health():
-    return "OK", 200
+    return {"status": "ok", "message": "AASTU Evang Bot is running"}, 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -107,6 +109,43 @@ def get_user_by_topic(topic_id):
             cur.close(); conn.close()
 
 # ─────────────────────────────────────────────
+#  Anonymous ID helpers
+# ─────────────────────────────────────────────
+def _generate_anon_id():
+    """Generate a short random anonymous ID like #A3F9B2."""
+    chars = string.ascii_uppercase + string.digits
+    return "#" + "".join(random.choices(chars, k=6))
+
+def get_or_create_anon_id(user_id):
+    """Return the stored anonymous ID for a user, creating one if absent."""
+    conn = None
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("SELECT anon_id FROM user_progress WHERE telegram_id = %s", (user_id,))
+        row = cur.fetchone()
+        if row and row[0]:
+            return row[0]
+        # No anon_id yet — generate and persist one
+        anon_id = _generate_anon_id()
+        cur.execute(
+            "INSERT INTO user_progress (telegram_id, anon_id) VALUES (%s, %s) "
+            "ON DUPLICATE KEY UPDATE anon_id = IF(anon_id IS NULL, %s, anon_id)",
+            (user_id, anon_id, anon_id)
+        )
+        conn.commit()
+        # Re-read to get whatever was actually saved (handles race conditions)
+        cur.execute("SELECT anon_id FROM user_progress WHERE telegram_id = %s", (user_id,))
+        row = cur.fetchone()
+        return row[0] if row else anon_id
+    except Exception as e:
+        print(f"[DB] get_or_create_anon_id error: {e}")
+        return _generate_anon_id()
+    finally:
+        if conn and conn.is_connected():
+            cur.close(); conn.close()
+
+# ─────────────────────────────────────────────
 #  Bot
 # ─────────────────────────────────────────────
 bot = telebot.TeleBot(TOKEN, threaded=True)
@@ -150,20 +189,23 @@ STUDY_FILES = {
 # ─────────────────────────────────────────────
 #  Forum topic helpers
 # ─────────────────────────────────────────────
-def ensure_topic(user_id, display_name, source=""):
+def ensure_topic(user_id, source=""):
     tid = get_topic_id(user_id)
     if tid:
         return tid
-    label = SOURCE_LABEL_MAP.get(source, "💬 General")
-    result = bot.create_forum_topic(ADMIN_GROUP_ID, name=f"{label} | {display_name}")
-    tid = result.message_thread_id
+    label   = SOURCE_LABEL_MAP.get(source, "💬 General")
+    anon_id = get_or_create_anon_id(user_id)
+    result  = bot.create_forum_topic(ADMIN_GROUP_ID, name=f"{label} | {anon_id}")
+    tid     = result.message_thread_id
     set_topic_id(user_id, tid)
     return tid
 
-def forward_to_admin(user_id, display_name, message):
+def forward_to_admin(user_id, message, source=""):
     try:
-        tid = ensure_topic(user_id, display_name)
-        bot.forward_message(ADMIN_GROUP_ID, user_id, message.message_id, message_thread_id=tid)
+        tid = ensure_topic(user_id, source)
+        # copy_message strips the "Forwarded from" attribution header,
+        # keeping the content but hiding the sender's identity.
+        bot.copy_message(ADMIN_GROUP_ID, user_id, message.message_id, message_thread_id=tid)
     except Exception as e:
         print(f"[forward_to_admin] {e}")
 
@@ -200,13 +242,13 @@ user_states = {}
 
 def start_registration(message, source):
     cid = message.chat.id
-    user_states[cid] = {"step": "full_name", "source": source}
+    user_states[cid] = {"step": "sex", "source": source}
 
     if "አማካሪ ማግኘት እፈልጋለሁ" in source:
         msg = ("እኛን ለማግኘት ስለፈለጉ እናመሰግናለን🙏\n"
                "በcounseling Team ወደ ሚሰጥ ወደ ማማከር አገልግሎት ይወስዶታል።\n\n"
                "ለማቋረጥ 'cancel' ብለው ይጻፉ።\n\n"
-               "ለመቀጠል እባክዎ ሙሉ ስምዎን ያስገቡ፦")
+               "👉 ፆታዎን ያስገቡ (Male / Female):")
     elif "በንሰሀ መመለስ እፈልጋለሁ" in source:
         msg = (
             "🙏 በንሰሀ ለመመለስ መወሰንዎ ትልቅ ደስታ ነው!\n\n"
@@ -225,18 +267,18 @@ def start_registration(message, source):
             "እጆችህን ዘርግተህ ትጠብቀኛለህ። ለምትሰጠኝ ብዙ የንስሐ ዕድሎች ሁሉ አመሰግንሃለሁ።\n"
             "     በኢየሱስ ስም፣ አሜን.\"\n\n"
             "ለማቋረጥ 'cancel' ብለው ይጻፉ።\n\n"
-            "ለመቀጠል እባክዎ ሙሉ ስምዎን ያስገቡ፦"
+            "👉 ፆታዎን ያስገቡ (Male / Female):"
         )
     elif "ኢየሱስን እንደ ግል አዳኝ አድርጌ ለመቀበል" in source:
         msg = ("🙏 ኢየሱስን እንደ ግል አዳኝ ለመቀበል የመወሰንዎ ትልቅ ደስታ ነው!\n\n"
                "ለማቋረጥ 'cancel' ብለው ይጻፉ።\n\n"
-               "ለመቀጠል እባክዎ ሙሉ ስምዎን ያስገቡ፦")
+               "👉 ፆታዎን ያስገቡ (Male / Female):")
     else:
         msg = ("🙏 ጥያቄ መጠየቅ ስለፈለጉ እናመሰግናለን🙏\n\n"
                "ለማቋረጥ 'cancel' ብለው ይጻፉ።\n\n"
-               "ለመቀጠል እባክዎ ሙሉ ስምዎን ያስገቡ፦")
+               "👉 ፆታዎን ያስገቡ (Male / Female):")
 
-    bot.send_message(cid, msg)
+    bot.send_message(cid, msg, reply_markup=sex_kb)
 
 # ─────────────────────────────────────────────
 #  Handlers — admin group
@@ -306,47 +348,38 @@ def on_registration(msg):
 
     state = user_states[cid]
 
-    if state["step"] == "full_name":
-        state["full_name"] = text
-        state["step"] = "sex"
-        bot.send_message(cid, "👉 ፆታዎን ያስገቡ (Male / Female):", reply_markup=sex_kb)
-
-    elif state["step"] == "sex":
+    if state["step"] == "sex":
         if text.lower() not in ["male", "female"]:
             bot.send_message(cid, "❌ Male ወይም Female ብቻ ያስገቡ።", reply_markup=sex_kb)
             return
         state["sex"] = text
-        state["step"] = "username"
-        bot.send_message(cid, "👉 የቴሌግራም Username ያስገቡ (ለምሳሌ @yourname)፦", reply_markup=cancel_kb)
 
-    elif state["step"] == "username":
-        username     = text if text.startswith("@") else "@" + text
-        source       = state["source"]
-        display_name = f"{state['full_name']} ({state['sex']})"
+        source   = state["source"]
+        anon_id  = get_or_create_anon_id(cid)
 
-        # Create topic and post registration card
+        # Create the forum topic using only the anonymous ID — no real name
         try:
-            tid = ensure_topic(cid, display_name, source)
+            tid = ensure_topic(cid, source)
             bot.send_message(
                 ADMIN_GROUP_ID,
                 f"🚨 *New Request*\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"📌 *From:* {source}\n"
-                f"👤 *Name:* {state['full_name']}\n"
+                f"📌 *Category:* {source}\n"
                 f"⚧ *Sex:* {state['sex']}\n"
-                f"📱 *Username:* {username}\n"
-                f"🆔 *ID:* `{cid}`\n"
+                f"� *Anonymous ID:* `{anon_id}`\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"↩️ Reply here to message the user anonymously.",
+                f"↩️ Reply here to message this person anonymously.",
                 parse_mode="Markdown",
                 message_thread_id=tid
             )
         except Exception as e:
             print(f"[registration] topic error: {e}")
 
-        # DM notifications
-        dm = (f"🚨 *New Request*\n📌 {source}\n"
-              f"👤 {state['full_name']} | {state['sex']}\n📱 {username}")
+        # Mentor notifications — category and anonymous ID only
+        dm = (f"🚨 *New Anonymous Request*\n"
+              f"📌 {source}\n"
+              f"⚧ {state['sex']}\n"
+              f"� ID: `{anon_id}`")
         try: bot.send_message(MENTOR_EVANGELISM_ID, dm, parse_mode="Markdown")
         except: pass
         specialist = SPECIALIST_MENTOR_MAP.get(source)
@@ -495,8 +528,7 @@ def router(msg):
 
     # Relay if registered and not pressing a menu button
     if get_topic_id(cid) is not None and text not in MENU_BUTTONS and text not in STUDY_FILES:
-        display = msg.from_user.first_name or str(cid)
-        forward_to_admin(cid, display, msg)
+        forward_to_admin(cid, msg)
         return
 
     if text == "አማካሪ ማግኘት እፈልጋለሁ":
