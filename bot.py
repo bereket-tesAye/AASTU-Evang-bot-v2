@@ -622,6 +622,9 @@ def router(msg):
             bot.send_message(cid, "⚠️ ፋይሉን ማግኘት አልተቻለም።")
             print(f"[file] {e}")
 
+    elif msg.document:
+        print(f"[file_id] document file_id={msg.document.file_id} name={msg.document.file_name}")
+
     elif text == "Back to Main Menu":
         bot.send_message(cid, "ዋና ማውጫ", reply_markup=main_kb)
 
