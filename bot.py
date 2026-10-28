@@ -366,24 +366,6 @@ def on_fileid(msg):
     else:
         bot.send_message(msg.chat.id, "Reply to a document with /fileid to get its file_id.")
 
-@bot.message_handler(commands=["upload"])
-def on_upload(msg):
-    """Usage: send a PDF to the bot with caption being the exact file name, then reply with /upload"""
-    if msg.reply_to_message and msg.reply_to_message.document:
-        doc = msg.reply_to_message.document
-        caption = msg.reply_to_message.caption or ""
-        if caption in STUDY_FILE_NAMES:
-            save_study_file(caption, doc.file_id)
-            STUDY_FILES[caption] = doc.file_id
-            bot.send_message(msg.chat.id, f"✅ Saved: {caption}")
-        else:
-            kb = "\n".join(f"• {n}" for n in STUDY_FILE_NAMES)
-            bot.send_message(msg.chat.id,
-                f"❌ Caption must exactly match one of:\n{kb}\n\n"
-                f"Send the PDF with the exact Amharic title as caption, then reply with /upload")
-    else:
-        bot.send_message(msg.chat.id, "Reply to a PDF document with /upload to save it.")
-
 
     bot.send_message(msg.chat.id,
         "ችግር የለም😊! ሃሳብዎን ከቀየሩ /yes ይጫኑ።\nእግዚአብሔር ይባርክዎ! 🙏")
@@ -691,6 +673,22 @@ def router(msg):
 
     elif text == "Back to Main Menu":
         bot.send_message(cid, "ዋና ማውጫ", reply_markup=main_kb)
+
+    elif text.startswith("/upload"):
+        if msg.reply_to_message and msg.reply_to_message.document:
+            doc     = msg.reply_to_message.document
+            caption = msg.reply_to_message.caption or ""
+            if caption in STUDY_FILE_NAMES:
+                save_study_file(caption, doc.file_id)
+                STUDY_FILES[caption] = doc.file_id
+                bot.send_message(cid, f"✅ Saved: {caption}")
+            else:
+                kb = "\n".join(f"• {n}" for n in STUDY_FILE_NAMES)
+                bot.send_message(cid,
+                    f"❌ Caption must exactly match one of:\n{kb}\n\n"
+                    f"Send the PDF with the exact Amharic title as caption, then reply /upload")
+        else:
+            bot.send_message(cid, "Reply to a PDF document with /upload to save it.")
 
     elif text == "የዮሐንስ ወንጌል (Gospel of John)":
         start_bible_study(msg)
