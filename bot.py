@@ -166,20 +166,54 @@ sex_kb.row("Male", "Female")
 sex_kb.row("❌ ሰርዝ (Cancel)")
 
 # ─────────────────────────────────────────────
-#  Study files
+#  Study files — loaded from DB, fallback to hardcoded
 # ─────────────────────────────────────────────
-STUDY_FILES = {
-    "እየሱስ ከአብ ጋር እኩል ስልጣን የለውም":          "BQACAgQAAyEFAATkiwQeAAMUacTbMcmwvG88u9injn2s_JNg3ZIAAhMdAAIHdihST2mm2MGw0qo6BA",
-    "ሥላሴ ሚለው ቃል መፅሐፍ ቅዱስ ላይ የለም":          "BQACAgQAAyEFAATkiwQeAAMNacTbMaZk4sg1CaPu9ZZ6Dfkio8kAAgwdAAIHdihSTwX9MvVYtmM6BA",
-    "አምላክ እንዴት ወደ አምላክ ይፀልያል?":             "BQACAgQAAyEFAATkiwQeAAMQacTbMRzZ4yCmC2JPLW7iwLsOHoAAAg8dAAIHdihSZqqDCB2OQhU6BA",
-    "አምላክ እንዴት ይወልዳል?":                      "BQACAgQAAyEFAATkiwQeAAMRacTbMed9vEegLIPBPTQoILT--40AAhAdAAIHdihS0ds89QKq1lA6BA",
-    "ስንት አምላክ ነው ያላቹ?":                      "BQACAgQAAyEFAATkiwQeAAMOacTbMUIqjlYCQCvzKuIkmaecm5QAAg0dAAIHdihS8mG5Xi5-0uY6BA",
-    "አንድ አምላክ እንዴት የአንድ አምላክ ልጅ ይባላል?":   "BQACAgQAAyEFAATkiwQeAAMTacTbMdKoMbmiUWz0Rd4WMAWby9QAAhIdAAIHdihSoaptNhjhh-A6BA",
-    "የውሃ ጥምቀት በኢየሱስ ክርስቶስ ስም":             "BQACAgQAAyEFAATkiwQeAAMWacTbMS3oCKVxFvlfMYJiBAq8nEIAAhUdAAIHdihSJ9OUTPAO0ao6BA",
-    "ትምህርተ ሥላሴና የአረማውያኑ":                   "BQACAgQAAyEFAATkiwQeAAMPacTbMXJsAmzgTpc-i8sQsFyPXJIAAg4dAAIHdihSyaA5H27yGsM6BA",
-    "የኦንሊ ጂሰሱ_አብ ወልድና መንፈስ ቅዱስ":           "BQACAgQAAyEFAATkiwQeAAMVacTbMbVLit8MP8ZBqN7W5fD4pfMAAhQdAAIHdihSk2HT3OjY4ic6BA",
-    "አብ ፣ ወልድና መንፈስ ቅዱስ የተለያዩ አካላት አይደሉምን": "BQACAgQAAyEFAATkiwQeAAMSacTbMSGtXjsgRvk8DAQo4ud2cRwAAhEdAAIHdihS7tw9h3oYsWs6BA",
-}
+STUDY_FILE_NAMES = [
+    "እየሱስ ከአብ ጋር እኩል ስልጣን የለውም",
+    "ሥላሴ ሚለው ቃል መፅሐፍ ቅዱስ ላይ የለም",
+    "አምላክ እንዴት ወደ አምላክ ይፀልያል?",
+    "አምላክ እንዴት ይወልዳል?",
+    "ስንት አምላክ ነው ያላቹ?",
+    "አንድ አምላክ እንዴት የአንድ አምላክ ልጅ ይባላል?",
+    "የውሃ ጥምቀት በኢየሱስ ክርስቶስ ስም",
+    "ትምህርተ ሥላሴና የአረማውያኑ",
+    "የኦንሊ ጂሰሱ_አብ ወልድና መንፈስ ቅዱስ",
+    "አብ ፣ ወልድና መንፈስ ቅዱስ የተለያዩ አካላት አይደሉምን",
+]
+
+def get_study_files():
+    """Load study file_ids from DB."""
+    conn = None
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("SELECT file_name, file_id FROM study_files")
+        return dict(cur.fetchall())
+    except Exception as e:
+        print(f"[DB] get_study_files error: {e}")
+        return {}
+    finally:
+        if conn: conn.close()
+
+def save_study_file(file_name, file_id):
+    """Save or update a study file_id in DB."""
+    conn = None
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT INTO study_files (file_name, file_id)
+               VALUES (%s, %s)
+               ON CONFLICT (file_name) DO UPDATE SET file_id = EXCLUDED.file_id""",
+            (file_name, file_id)
+        )
+        conn.commit()
+    except Exception as e:
+        print(f"[DB] save_study_file error: {e}")
+    finally:
+        if conn: conn.close()
+
+STUDY_FILES = get_study_files()
 
 # ─────────────────────────────────────────────
 #  Forum topic helpers
@@ -331,6 +365,24 @@ def on_fileid(msg):
         bot.send_message(msg.chat.id, f"`{fid}`", parse_mode="Markdown")
     else:
         bot.send_message(msg.chat.id, "Reply to a document with /fileid to get its file_id.")
+
+@bot.message_handler(commands=["upload"])
+def on_upload(msg):
+    """Usage: send a PDF to the bot with caption being the exact file name, then reply with /upload"""
+    if msg.reply_to_message and msg.reply_to_message.document:
+        doc = msg.reply_to_message.document
+        caption = msg.reply_to_message.caption or ""
+        if caption in STUDY_FILE_NAMES:
+            save_study_file(caption, doc.file_id)
+            STUDY_FILES[caption] = doc.file_id
+            bot.send_message(msg.chat.id, f"✅ Saved: {caption}")
+        else:
+            kb = "\n".join(f"• {n}" for n in STUDY_FILE_NAMES)
+            bot.send_message(msg.chat.id,
+                f"❌ Caption must exactly match one of:\n{kb}\n\n"
+                f"Send the PDF with the exact Amharic title as caption, then reply with /upload")
+    else:
+        bot.send_message(msg.chat.id, "Reply to a PDF document with /upload to save it.")
 
 
     bot.send_message(msg.chat.id,
@@ -517,7 +569,7 @@ MENU_BUTTONS = {
     "Common Muslim questions about Christianity?",
     "Common Only Jesus questions about Christianity",
     "የዮሐንስ ወንጌል (Gospel of John)",
-}
+} | set(STUDY_FILE_NAMES)
 
 @bot.message_handler(func=lambda m: True)
 def router(msg):
@@ -531,7 +583,7 @@ def router(msg):
     text = msg.text or ""
 
     # Relay if registered and not pressing a menu button
-    if get_topic_id(cid) is not None and text not in MENU_BUTTONS and text not in STUDY_FILES:
+    if get_topic_id(cid) is not None and text not in MENU_BUTTONS:
         forward_to_admin(cid, msg)
         return
 
@@ -621,13 +673,18 @@ def router(msg):
         kb.row("Back to Main Menu")
         bot.send_message(cid, "የትኛውን ጥናት መጀመር ይፈልጋሉ?", reply_markup=kb)
 
-    elif text in STUDY_FILES:
-        try:
-            bot.send_chat_action(cid, "upload_document")
-            bot.send_document(cid, STUDY_FILES[text], caption=f"📄 {text}")
-        except Exception as e:
-            bot.send_message(cid, "⚠️ ፋይሉን ማግኘት አልተቻለም።")
-            print(f"[file] {e}")
+    elif text in STUDY_FILE_NAMES:
+        file_id = STUDY_FILES.get(text) or get_study_files().get(text)
+        if file_id:
+            try:
+                bot.send_chat_action(cid, "upload_document")
+                bot.send_document(cid, file_id, caption=f"📄 {text}")
+                STUDY_FILES[text] = file_id
+            except Exception as e:
+                bot.send_message(cid, "⚠️ ፋይሉን ማግኘት አልተቻለም።")
+                print(f"[file] {e}")
+        else:
+            bot.send_message(cid, "⚠️ ፋይሉ እስካሁን አልተሰቀለም። እባክዎ ቆይተው ይሞክሩ።")
 
     elif msg.document:
         print(f"[file_id] document file_id={msg.document.file_id} name={msg.document.file_name}")
