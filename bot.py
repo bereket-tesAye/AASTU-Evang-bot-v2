@@ -324,8 +324,15 @@ def on_help(msg):
         reply_markup=main_kb
     )
 
-@bot.message_handler(commands=["no"])
-def on_no(msg):
+@bot.message_handler(commands=["fileid"])
+def on_fileid(msg):
+    if msg.reply_to_message and msg.reply_to_message.document:
+        fid = msg.reply_to_message.document.file_id
+        bot.send_message(msg.chat.id, f"`{fid}`", parse_mode="Markdown")
+    else:
+        bot.send_message(msg.chat.id, "Reply to a document with /fileid to get its file_id.")
+
+
     bot.send_message(msg.chat.id,
         "ችግር የለም😊! ሃሳብዎን ከቀየሩ /yes ይጫኑ።\nእግዚአብሔር ይባርክዎ! 🙏")
 
