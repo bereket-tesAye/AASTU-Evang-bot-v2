@@ -557,8 +557,9 @@ def router(msg):
 
     # Relay if registered and not pressing a menu button
     if get_topic_id(cid) is not None and text not in MENU_BUTTONS:
-        forward_to_admin(cid, msg)
-        return
+        if not text.startswith("/"):
+            forward_to_admin(cid, msg)
+            return
 
     if text == "አማካሪ ማግኘት እፈልጋለሁ":
         start_registration(msg, "አማካሪ ማግኘት እፈልጋለሁ")
